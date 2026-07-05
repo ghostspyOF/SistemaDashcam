@@ -800,20 +800,21 @@
 
     <script>
         // CONFIGURAÇÕES E ESTADO GLOBAL
-        let streams = [];
+        let currentStream = null;
+        let audioStream = null;
         let recorders = [];
         let loopInterval = null;
         let elapsedTimer = null;
-        let canvasRenderInterval = null;
-        let alternatingInterval = null; // Intervalo para alternar câmera de 30s
+        let isCanvasRunning = false;
+        let alternatingInterval = null; 
         let secondsElapsed = 0;
-        let chunkDuration = 120000; // 2 minutos padrão
+        let chunkDuration = 120000; 
         const maxVideoLimit = 32;
         
-        // Controle do estado do play/pause manual requisitado.
         let isRecordingActive = false;
         let currentModeCaptured = '';
-        let currentActiveVideoElement = null; // Identifica qual elemento de vídeo está ativo no Canvas
+        let currentActiveVideoElement = null; 
+        let currentFacingMode = "user"; 
 
         // Elementos do DOM
         const cameraModal = document.getElementById('cameraModal');
@@ -875,7 +876,6 @@
         function openCameraModal() { cameraModal.classList.add('active'); }
         function closeCameraModal() { cameraModal.classList.remove('active'); }
 
-        // Inicializador de Captura de Mídia
         async function startCapture(mode) {
             closeCameraModal();
             document.getElementById('dashboardScreen').style.opacity = '0';
@@ -891,89 +891,85 @@
             currentModeCaptured = mode;
             updatePlayPauseButtonUI();
 
+            // Configuração estável de resolução padrão para evitar estouro de memória no Canvas
+            hiddenCanvas.width = 1280;
+            hiddenCanvas.height = 720;
+
             try {
+                // Abre o microfone separadamente em um fluxo fixo
+                audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
                 if (mode === 'front') {
                     video1.classList.add('front-camera-view');
                     currentActiveVideoElement = video1;
-                    await setupSingleCamera({ video: { facingMode: "user" }, audio: true }, video1);
+                    await setupCameraDevice({ video: { facingMode: "user", width: 1280, height: 720 } }, video1);
                 } else if (mode === 'back') {
                     currentActiveVideoElement = video1;
-                    await setupSingleCamera({ video: { facingMode: { exact: "environment" } }, audio: true }, video1).catch(async () => {
-                        await setupSingleCamera({ video: { facingMode: "environment" }, audio: true }, video1);
-                    });
+                    await setupCameraDevice({ video: { facingMode: "environment", width: 1280, height: 720 } }, video1);
                 } else if (mode === 'alternating') {
-                    // Modo Alternante solicitado: Configura 4 minutos (240000ms) de chunk total
-                    chunkDuration = 240000;
+                    chunkDuration = 240000; // 4 minutos totais
+                    currentFacingMode = "user"; 
                     video1.classList.add('front-camera-view');
                     currentActiveVideoElement = video1;
                     
-                    // Inicializa os fluxos de ambas as câmeras simultaneamente para troca rápida
-                    const streamFront = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: true });
-                    video1.srcObject = streamFront;
-                    streams.push(streamFront);
-
-                    let streamBack;
-                    try {
-                        streamBack = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: "environment" } }, audio: true });
-                    } catch {
-                        streamBack = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: true });
-                    }
-                    video2.srcObject = streamBack;
-                    streams.push(streamBack);
-
-                    video1.onloadedmetadata = () => {
-                        hiddenCanvas.width = video1.videoWidth || 1280;
-                        hiddenCanvas.height = video1.videoHeight || 720;
-                        
-                        startCanvasStamping();
-                        
-                        // Combina o vídeo do Canvas com a faixa de áudio ativa
-                        const canvasStream = hiddenCanvas.captureStream(30);
-                        const audioTrack = streamFront.getAudioTracks()[0];
-                        if (audioTrack) {
-                            canvasStream.addTrack(audioTrack);
-                        }
-                        
-                        startMediaRecorder(canvasStream, "Alternante");
-                    };
+                    await setupCameraDevice({ video: { facingMode: "user", width: 1280, height: 720 } }, video1);
                 }
 
-                showToast("Câmera aberta. Posicione o aparelho e clique em Iniciar.");
+                // Inicia o loop seguro de renderização do carimbo
+                isCanvasRunning = true;
+                startCanvasStamping();
+
+                // Monta o fluxo final composto (Canvas estável + Áudio contínuo)
+                const canvasStream = hiddenCanvas.captureStream(25);
+                if (audioStream.getAudioTracks().length > 0) {
+                    canvasStream.addTrack(audioStream.getAudioTracks()[0]);
+                }
+                
+                startMediaRecorder(canvasStream, mode === 'alternating' ? "Alternante" : "Camera");
+                showToast("Câmera aberta. Clique em Iniciar.");
 
             } catch (err) {
-                alert("Falha de acesso às câmeras/microfone: " + err.message);
+                alert("Falha de acesso ao hardware: " + err.message);
                 stopCaptureSystem();
             }
         }
 
-        async function setupSingleCamera(constraints, videoTarget) {
-            const stream = await navigator.mediaDevices.getUserMedia(constraints);
-            videoTarget.srcObject = stream;
-            streams.push(stream);
-            
-            videoTarget.onloadedmetadata = () => {
-                hiddenCanvas.width = videoTarget.videoWidth || 1280;
-                hiddenCanvas.height = videoTarget.videoHeight || 720;
-                
-                startCanvasStamping();
-                
-                const canvasStream = hiddenCanvas.captureStream(30); 
-                const audioTrack = stream.getAudioTracks()[0];
-                if (audioTrack) {
-                    canvasStream.addTrack(audioTrack);
-                }
-                
-                startMediaRecorder(canvasStream, "Camera");
-            };
+        async function setupCameraDevice(constraints, videoTarget) {
+            if (currentStream) {
+                currentStream.getTracks().forEach(t => t.stop());
+            }
+            currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+            videoTarget.srcObject = currentStream;
+            return new Promise((resolve) => {
+                videoTarget.onloadedmetadata = () => {
+                    videoTarget.play();
+                    resolve();
+                };
+            });
         }
 
-        // Desenha quadro a quadro o vídeo original injetando os textos
+        // Alterna a câmera fisicamente fechando o hardware anterior antes de chamar o próximo
+        async function switchCameraOnTheFly() {
+            try {
+                if (currentFacingMode === "user") {
+                    currentFacingMode = "environment";
+                    video1.classList.remove('front-camera-view');
+                    await setupCameraDevice({ video: { facingMode: "environment", width: 1280, height: 720 } }, video1);
+                } else {
+                    currentFacingMode = "user";
+                    video1.classList.add('front-camera-view');
+                    await setupCameraDevice({ video: { facingMode: "user", width: 1280, height: 720 } }, video1);
+                }
+            } catch (e) {
+                console.error("Erro na transição suave de câmera: ", e);
+            }
+        }
+
+        // Desenha usando requestAnimationFrame (sincronizado nativamente, sem travar a CPU)
         function startCanvasStamping() {
-            if (canvasRenderInterval) clearInterval(canvasRenderInterval);
-            
-            canvasRenderInterval = setInterval(() => {
-                if (!currentActiveVideoElement || currentActiveVideoElement.paused || currentActiveVideoElement.ended) return;
-                
+            if (!isCanvasRunning) return;
+
+            if (currentActiveVideoElement && !currentActiveVideoElement.paused && !currentActiveVideoElement.ended) {
                 ctx.clearRect(0, 0, hiddenCanvas.width, hiddenCanvas.height);
                 
                 if (currentActiveVideoElement.classList.contains('front-camera-view')) {
@@ -986,13 +982,13 @@
                     ctx.drawImage(currentActiveVideoElement, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
                 }
                 
+                // Aplica estilo visual à fonte
                 ctx.fillStyle = "#ff6600"; 
                 ctx.shadowColor = "black";
                 ctx.shadowBlur = 6;
                 ctx.lineWidth = 4;
                 ctx.strokeStyle = "black";
                 
-                // Formata data e hora
                 const d = new Date();
                 const dia = String(d.getDate()).padStart(2, '0');
                 const mes = String(d.getMonth() + 1).padStart(2, '0');
@@ -1001,32 +997,29 @@
                 const min = String(d.getMinutes()).padStart(2, '0');
                 const seg = String(d.getSeconds()).padStart(2, '0');
                 
-                // Formata minutos correndo
                 let minsElapsed = String(Math.floor(secondsElapsed / 60)).padStart(2, '0');
                 let secsElapsed = String(secondsElapsed % 60).padStart(2, '0');
                 
-                // Frase única solicitada na parte de baixo
                 const textoFraseUnica = `Mayckon: ${dia}/${mes}/${ano} - ${hora}:${min}:${seg} (${minsElapsed}:${secsElapsed})`;
                 
-                ctx.font = "bold " + Math.max(18, hiddenCanvas.height * 0.038) + "px monospace";
+                ctx.font = "bold 26px monospace";
                 ctx.textAlign = "center";
-                const xCentro = hiddenCanvas.width / 2;
-                const yBase = hiddenCanvas.height * 0.93;
                 
-                ctx.strokeText(textoFraseUnica, xCentro, yBase);
-                ctx.fillText(textoFraseUnica, xCentro, yBase);
-                
-                ctx.shadowBlur = 0;
-            }, 33);
+                ctx.strokeText(textoFraseUnica, hiddenCanvas.width / 2, hiddenCanvas.height * 0.93);
+                ctx.fillText(textoFraseUnica, hiddenCanvas.width / 2, hiddenCanvas.height * 0.93);
+            } else {
+                // Tela de transição se o hardware estiver alternando
+                ctx.fillStyle = "#000000";
+                ctx.fillRect(0, 0, hiddenCanvas.width, hiddenCanvas.height);
+            }
+            
+            requestAnimationFrame(startCanvasStamping);
         }
 
         function startMediaRecorder(stream, label) {
-            let options = { mimeType: 'video/webm;codecs=vp9' };
+            let options = { mimeType: 'video/webm;codecs=vp8,opus' };
             if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-                options = { mimeType: 'video/webm;codecs=vp8' };
-                if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-                    options = { mimeType: 'video/mp4' }; 
-                }
+                options = { mimeType: 'video/webm' }; 
             }
 
             const recorder = new MediaRecorder(stream, options);
@@ -1039,12 +1032,10 @@
             recorder.onstop = async () => {
                 const blob = new Blob(chunks, { type: recorder.mimeType });
                 chunks = [];
-                
                 if (blob.size > 5000) { 
                     await saveVideoToInternalDatabase(blob, label);
                 }
-                
-                if (stream.active && isRecordingActive) {
+                if (isRecordingActive) {
                     recorder.start();
                 }
             };
@@ -1058,9 +1049,7 @@
             if (!isRecordingActive) {
                 isRecordingActive = true;
                 recorders.forEach(item => {
-                    if (item.recorderInstance.state === "inactive") {
-                        item.recorderInstance.start();
-                    }
+                    if (item.recorderInstance.state === "inactive") item.recorderInstance.start();
                 });
                 startTimers();
                 
@@ -1074,19 +1063,10 @@
                     }, chunkDuration);
                 }
 
-                // Se for o modo alternante, ativa a troca de câmera de 30 em 30 segundos
                 if (currentModeCaptured === 'alternating' && !alternatingInterval) {
-                    alternatingInterval = setInterval(() => {
+                    alternatingInterval = setInterval(async () => {
                         if (isRecordingActive) {
-                            if (currentActiveVideoElement === video1) {
-                                currentActiveVideoElement = video2;
-                                video1.style.display = 'none';
-                                video2.style.display = 'block';
-                            } else {
-                                currentActiveVideoElement = video1;
-                                video2.style.display = 'none';
-                                video1.style.display = 'block';
-                            }
+                            await switchCameraOnTheFly();
                         }
                     }, 30000); 
                 }
@@ -1102,11 +1082,9 @@
                 alternatingInterval = null;
 
                 recorders.forEach(item => {
-                    if(item.recorderInstance.state !== "inactive") {
-                        item.recorderInstance.stop();
-                    }
+                    if(item.recorderInstance.state !== "inactive") item.recorderInstance.stop();
                 });
-                showToast("Gravação pausada. Fragmento salvo.");
+                showToast("Gravação pausada.");
             }
             updatePlayPauseButtonUI();
         }
@@ -1129,7 +1107,6 @@
 
         async function saveVideoToInternalDatabase(blob, label) {
             if (!db) return;
-
             const date = new Date();
             const timestampText = `${String(date.getDate()).padStart(2,'0')}/${String(date.getMonth()+1).padStart(2,'0')} às ${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`;
             const name = `Vídeo ${label} (${timestampText})`;
@@ -1139,82 +1116,73 @@
             
             storeCheck.getAll().onsuccess = function(event) {
                 let allRecords = event.target.result;
-                
                 if (allRecords.length >= maxVideoLimit) {
                     allRecords.sort((a, b) => a.id - b.id);
                     let overflowCount = (allRecords.length - maxVideoLimit) + 1;
                     for(let i = 0; i < overflowCount; i++) {
-                        let oldestId = allRecords[i].id;
-                        storeCheck.delete(oldestId);
+                        storeCheck.delete(allRecords[i].id);
                     }
                 }
 
                 const insertTx = db.transaction(["videos"], "readwrite");
                 const insertStore = insertTx.objectStore("videos");
-                insertStore.add({
-                    name: name,
-                    videoBlob: blob,
-                    dateAdded: date.getTime()
-                });
-
-                insertTx.oncomplete = function() {
-                    updateStorageUI();
-                };
+                insertStore.add({ name: name, videoBlob: blob, dateAdded: date.getTime() });
+                insertTx.oncomplete = () => updateStorageUI();
             };
         }
 
         function startTimers() {
-            if (secondsElapsed === 0) {
-                timerDisplay.innerText = "00:00";
-            }
+            if (secondsElapsed === 0) timerDisplay.innerText = "00:00";
             elapsedTimer = setInterval(() => {
                 secondsElapsed++;
                 let mins = String(Math.floor(secondsElapsed / 60)).padStart(2, '0');
                 let secs = String(secondsElapsed % 60).padStart(2, '0');
                 timerDisplay.innerText = `${mins}:${secs}`;
 
-                // Se atingir 4 minutos (240 segundos) no modo alternante, para e armazena automaticamente
                 if (currentModeCaptured === 'alternating' && secondsElapsed >= 240) {
-                    showToast("Limite de 4 minutos atingido. Salvando...");
+                    showToast("Limite de 4 minutos atingido.");
                     stopCaptureSystem();
                 }
             }, 1000);
         }
 
         function stopCaptureSystem() {
+            isRecordingActive = false;
+            isCanvasRunning = false;
+            
             clearInterval(loopInterval);
             clearInterval(elapsedTimer);
             clearInterval(alternatingInterval);
-            if (canvasRenderInterval) clearInterval(canvasRenderInterval);
             loopInterval = null;
             elapsedTimer = null;
             alternatingInterval = null;
-            canvasRenderInterval = null;
             secondsElapsed = 0;
-            chunkDuration = 120000; 
 
             recorders.forEach(item => {
                 if(item.recorderInstance.state !== "inactive") item.recorderInstance.stop();
             });
             recorders = [];
 
-            streams.forEach(stream => {
-                stream.getTracks().forEach(track => track.stop());
-            });
-            streams = [];
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+                currentStream = null;
+            }
+            if (audioStream) {
+                audioStream.getTracks().forEach(track => track.stop());
+                audioStream = null;
+            }
 
             video1.srcObject = null;
             video2.srcObject = null;
             currentActiveVideoElement = null;
 
-            isRecordingActive = false;
             toggleBlackout(false);
             videoContainer.style.display = 'none';
             document.getElementById('dashboardScreen').style.opacity = '1';
             
             setTimeout(() => {
                 updateStorageUI();
-                showToast("Gravação encerrada. Vídeo armazenado.");
+                showToast("Gravação encerrada.");
             }, 600);
         }
 
@@ -1267,9 +1235,7 @@
             };
         }
 
-        function closeGallery() {
-            galleryPanel.style.display = "none";
-        }
+        function closeGallery() { galleryPanel.style.display = "none"; }
 
         function playInternalVideo(id) {
             const tx = db.transaction(["videos"], "readonly");
@@ -1286,9 +1252,7 @@
 
         function closeInternalPlayer() {
             internalPlayer.pause();
-            if (internalPlayer.src) {
-                URL.revokeObjectURL(internalPlayer.src);
-            }
+            if (internalPlayer.src) URL.revokeObjectURL(internalPlayer.src);
             internalPlayer.src = "";
             playerOverlay.style.display = "none";
         }
@@ -1307,7 +1271,7 @@
                     a.click();
                     document.body.removeChild(a);
                     URL.revokeObjectURL(url);
-                    showToast("Download enviado para o dispositivo!");
+                    showToast("Download enviado!");
                 }
             };
         }
@@ -1322,7 +1286,7 @@
                     showToast("Não há vídeos para baixar.");
                     return;
                 }
-                showToast(`Iniciando download em massa de ${records.length} vídeos...`);
+                showToast(`Iniciando download de ${records.length} vídeos...`);
                 records.forEach((record, index) => {
                     setTimeout(() => {
                         const url = URL.createObjectURL(record.videoBlob);
@@ -1353,13 +1317,11 @@
 
         function deleteAllVideos() {
             if (!db) return;
-            if (confirm("Aviso Crítico: Tem certeza de que deseja deletar TODOS os vídeos armazenados na pasta do sistema de uma só vez?")) {
+            if (confirm("Tem certeza de que deseja deletar TODOS os vídeos?")) {
                 const tx = db.transaction(["videos"], "readwrite");
                 const store = tx.objectStore("videos");
-                const clearRequest = store.clear();
-                
-                clearRequest.onsuccess = function() {
-                    showToast("Todos os vídeos foram removidos do armazenamento.");
+                store.clear().onsuccess = function() {
+                    showToast("Todos os vídeos foram removidos.");
                     updateStorageUI();
                     openGallery(); 
                 };
@@ -1369,8 +1331,8 @@
         let wakeLock = null;
         async function requestWakeLock() {
             try {
-                if ('wakeLock' in navigator) { wakeLock = await navigator.wakeLock.request('screen'); }
-            } catch (err) { console.warn(`WakeLock indisponível: ${err.message}`); }
+                if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
+            } catch (err) { console.warn(`WakeLock indisponível`); }
         }
         document.addEventListener('visibilitychange', () => {
             if (wakeLock !== null && document.visibilityState === 'visible') requestWakeLock();
