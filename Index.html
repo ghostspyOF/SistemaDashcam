@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AutoCam - Car Dashcam System</title>
+    <!-- Ícones externos via FontAwesome para um visual limpo -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-puro: #000000;
+            --laranja-vivo: #ff6600;
+            --laranja-glow: rgba(255, 102, 0, 0.3);
+            --vidro-bg: rgba(20, 20, 20, 0.6);
+            --vidro-borda: rgba(255, 102, 0, 0.2);
+            --vidro-blur: blur(15px);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body, html {
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-puro);
+            color: #ffffff;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* --- TELA INICIAL (DASHBOARD) --- */
+        .dashboard {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            z-index: 10;
+            transition: opacity 0.5s ease;
+        }
+
+        .main-cam-btn {
+            width: 160px;
+            height: 160px;
+            border-radius: 50%;
+            background: var(--vidro-bg);
+            border: 2px solid var(--laranja-vivo);
+            box-shadow: 0 0 25px var(--laranja-glow);
+            backdrop-filter: var(--vidro-blur);
+            -webkit-backdrop-filter: var(--vidro-blur);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .main-cam-btn:active {
+            transform: scale(0.92);
+            box-shadow: 0 0 40px var(--laranja-vivo);
+        }
+
+        .main-cam-btn i {
+            font-size: 4rem;
+            color: var(--laranja-vivo);
+        }
+
+        .app-title {
+            margin-top: 25px;
+            font-size: 1.5rem;
+            font-weight: 300;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: #ffffff;
+        }
+
+        .app-status-bar {
+            margin-top: 10px;
+            font-size: 0.85rem;
+            color: #888;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background-color: #00ff66;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        /* --- MODAL DA SELEÇÃO (ESTILO VIDRO) --- */
+        .modal-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 100;
+            padding: 20px;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-content {
+            background: var(--vidro-bg);
+            border: 1px solid var(--vidro-borda);
+            backdrop-filter: var(--vidro-blur);
+            -webkit-backdrop-filter: var(--vidro-blur);
+            width: 100%;
+            max-width: 400px;
+            border-radius: 24px;
+            padding: 30px 20px;
+            text-align: center;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.5);
+            transform: translateY(40px);
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .modal-overlay.active .modal-content {
+            transform: translateY(0);
+        }
+
+        .modal-header-icon {
+            width: 70px;
+            height: 70px;
+            background: rgba(255, 102, 0, 0.1);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0 auto 15px auto;
+            border: 1px solid rgba(255, 102, 0, 0.3);
+        }
+
+        .modal-header-icon i {
+            color: var(--laranja-vivo);
+            font-size: 1.8rem;
+        }
+
+        .modal-content h3 {
+            font-size: 1.3rem;
+            margin-bottom: 25px;
+            font-weight: 400;
+            letter-spacing: 0.5px;
+        }
+
+        .modal-buttons-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .modal-btn {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.08);
+            padding: 16px;
+            border-radius: 14px;
+            color: white;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .modal-btn i {
+            font-size: 1.4rem;
+            color: #bbb;
+            transition: color 0.2s ease;
+        }
+
+        .modal-btn span {
+            font-size: 0.95rem;
+            font-weight: 500;
+        }
+
+        .modal-btn:active {
+            background: rgba(255, 102, 0, 0.15);
+            border-color: var(--laranja-vivo);
+        }
+
+        .modal-btn:active i {
+            color: var(--laranja-vivo);
+        }
+
+        .modal-close-area {
+            margin-top: 20px;
+            font-size: 0.9rem;
+            color: #666;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        /* --- TELA DE GRAVAÇÃO ATIVA --- */
+        .recording-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-puro);
+            display: none;
+            flex-direction: column;
+            z-index: 50;
+        }
+
+        .viewfinders-wrapper {
+            flex: 1;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            background-color: #000;
+            position: relative;
+        }
+
+        /* Modo Ambas Câmeras Split Screen */
+        .viewfinders-wrapper.split-mode video {
+            height: 50%;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            background-color: #050505;
+            transform: scaleX(1); /* Padrão traseira */
+        }
+
+        /* Espelhar câmera frontal para visualização natural */
+        video.front-camera-view {
+            transform: scaleX(-1);
+        }
+
+        /* --- HUD SOBREPOSTO DE CONTROLE --- */
+        .recording-hud {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 25px;
+            pointer-events: none;
+            z-index: 60;
+            transition: opacity 0.3s ease;
+        }
+
+        .hud-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+        }
+
+        .rec-indicator {
+            background: rgba(0,0,0,0.6);
+            padding: 6px 14px;
+            border-radius: 20px;
+            backdrop-filter: var(--vidro-blur);
+            border: 1px solid rgba(255,0,0,0.3);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            pointer-events: auto;
+        }
+
+        .rec-dot {
+            width: 10px;
+            height: 10px;
+            background-color: #ff0000;
+            border-radius: 50%;
+            animation: pulse 1s infinite alternate;
+        }
+
+        .rec-timer {
+            font-family: monospace;
+            font-size: 0.95rem;
+            font-weight: bold;
+            color: #fff;
+        }
+
+        .hud-system-info {
+            font-size: 0.8rem;
+            color: rgba(255,255,255,0.7);
+            background: rgba(0,0,0,0.5);
+            padding: 4px 10px;
+            border-radius: 8px;
+            text-align: right;
+        }
+
+        .hud-bottom {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            pointer-events: auto;
+        }
+
+        .hud-btn {
+            background: var(--vidro-bg);
+            border: 1px solid var(--vidro-borda);
+            backdrop-filter: var(--vidro-blur);
+            -webkit-backdrop-filter: var(--vidro-blur);
+            color: white;
+            padding: 14px 24px;
+            border-radius: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.95rem;
+            transition: all 0.2s ease;
+        }
+
+        .hud-btn i {
+            color: var(--laranja-vivo);
+        }
+
+        .hud-btn:active {
+            background: rgba(255, 102, 0, 0.2);
+            transform: scale(0.95);
+        }
+
+        /* --- MODO OCULTO (BLACKOUT ADICIONAL) --- */
+        .blackout-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-puro);
+            z-index: 80;
+            display: none;
+            justify-content: center;
+            align-items: flex-end;
+            padding-bottom: 40px;
+        }
+
+        .restore-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: rgba(20, 20, 20, 0.4);
+            border: 1px solid rgba(255, 102, 0, 0.2);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+        }
+
+        .restore-inner-dot {
+            width: 8px;
+            height: 8px;
+            background-color: var(--laranja-vivo);
+            border-radius: 50%;
+            box-shadow: 0 0 8px var(--laranja-vivo);
+        }
+
+        /* Log de depuração inteligente direto na tela para o carro */
+        .console-log-car {
+            position: absolute;
+            bottom: 90px;
+            left: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.7);
+            border-radius: 6px;
+            padding: 8px;
+            font-size: 0.75rem;
+            color: #00ff66;
+            font-family: monospace;
+            pointer-events: none;
+            max-height: 60px;
+            overflow: hidden;
+            display: none;
+        }
+
+        @keyframes pulse {
+            from { opacity: 1; }
+            to { opacity: 0.3; }
+        }
+
+        /* Responsividade Paisagem (Horizontal para o Painel do Carro) */
+        @media (orientation: landscape) {
+            .viewfinders-wrapper.split-mode {
+                flex-direction: row;
+            }
+            .viewfinders-wrapper.split-mode video {
+                width: 50%;
+                height: 100%;
+            }
+            .modal-buttons-grid {
+                flex-direction: row;
+            }
+            .modal-content {
+                max-width: 550px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 1. TELA INICIAL (DASHBOARD) -->
+    <div class="dashboard" id="dashboardScreen">
+        <div class="main-cam-btn" onclick="openCameraModal()" id="triggerBtn">
+            <i class="fa-solid fa-camera"></i>
+        </div>
+        <h1 class="app-title">AutoCam Dashcam</h1>
+        <div class="app-status-bar">
+            <span class="status-dot"></span>
+            <span id="systemStatusText">Pronto para Monitoramento</span>
+        </div>
+    </div>
+
+    <!-- 2. DIÁLOGO / MODAL SELEÇÃO (ESTILO VIDRO) -->
+    <div class="modal-overlay" id="cameraModal">
+        <div class="modal-content">
+            <div class="modal-header-icon">
+                <i class="fa-solid fa-sliders"></i>
+            </div>
+            <h3>Selecione o Modo de Captura</h3>
+            
+            <div class="modal-buttons-grid">
+                <div class="modal-btn" onclick="startCapture('front')">
+                    <i class="fa-solid fa-user-gear"></i>
+                    <span>Câmera Frontal</span>
+                </div>
+                <div class="modal-btn" onclick="startCapture('back')">
+                    <i class="fa-solid fa-road"></i>
+                    <span>Câmera Traseira</span>
+                </div>
+                <div class="modal-btn" onclick="startCapture('both')">
+                    <i class="fa-solid fa-clone"></i>
+                    <span>Abrir Ambas</span>
+                </div>
+            </div>
+
+            <div class="modal-close-area" onclick="closeCameraModal()">
+                Cancelar e Voltar
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. VIEWPORT DE GRAVAÇÃO ATIVA -->
+    <div class="recording-container" id="videoContainer">
+        
+        <div class="viewfinders-wrapper" id="viewWrapper">
+            <video id="videoElement1" autoplay playsinline muted></video>
+            <video id="videoElement2" autoplay playsinline muted style="display: none;"></video>
+        </div>
+
+        <!-- LOG DE ARQUIVO SALVO -->
+        <div class="console-log-car" id="logSystem">Sinal estável. Inicializando gravação contínua...</div>
+
+        <!-- INTERFACE FLUTUANTE (HUD) -->
+        <div class="recording-hud" id="hudControl">
+            <div class="hud-top">
+                <div class="rec-indicator">
+                    <div class="rec-dot"></div>
+                    <div class="rec-timer" id="timerDisplay">00:00</div>
+                </div>
+                <div class="hud-system-info" id="storageInfo">
+                    Loop Ativo<br>Blocos de 2 min
+                </div>
+            </div>
+
+            <div class="hud-bottom">
+                <button class="hud-btn" onclick="stopCaptureSystem()">
+                    <i class="fa-solid fa-arrow-left"></i> Voltar
+                </button>
+                <button class="hud-btn" onclick="toggleBlackout(true)">
+                    <i class="fa-solid fa-eye-slash"></i> Ocultar
+                </button>
+            </div>
+        </div>
+
+        <!-- TELA PRETA ABSOLUTA (BLACKOUT) -->
+        <div class="blackout-overlay" id="blackoutView">
+            <div class="restore-btn" onclick="toggleBlackout(false)">
+                <div class="restore-inner-dot"></div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // Gerenciamento de Estado Global
+        let streams = [];
+        let recorders = [];
+        let loopInterval = null;
+        let elapsedTimer = null;
+        let secondsElapsed = 0;
+        const chunkDuration = 120000; // 2 Minutos exatos em milissegundos
+
+        // Elementos DOM
+        const cameraModal = document.getElementById('cameraModal');
+        const videoContainer = document.getElementById('videoContainer');
+        const viewWrapper = document.getElementById('viewWrapper');
+        const video1 = document.getElementById('videoElement1');
+        const video2 = document.getElementById('videoElement2');
+        const timerDisplay = document.getElementById('timerDisplay');
+        const blackoutView = document.getElementById('blackoutView');
+        const hudControl = document.getElementById('hudControl');
+        const logSystem = document.getElementById('logSystem');
+
+        // Abre / Fecha Modais
+        function openCameraModal() {
+            cameraModal.classList.add('active');
+        }
+
+        function closeCameraModal() {
+            cameraModal.classList.remove('active');
+        }
+
+        // Sistema central de logs visíveis (Apoio no carro)
+        function printLog(text) {
+            logSystem.style.display = 'block';
+            logSystem.innerText = `[AutoCam] ${text}`;
+            console.log(text);
+        }
+
+        // Inicializador de Captura
+        async function startCapture(mode) {
+            closeCameraModal();
+            document.getElementById('dashboardScreen').style.opacity = '0';
+            videoContainer.style.display = 'flex';
+            
+            // Reset de tela e elementos de visualização
+            video1.style.display = 'block';
+            video2.style.display = 'none';
+            video1.className = '';
+            video2.className = '';
+            viewWrapper.classList.remove('split-mode');
+
+            try {
+                if (mode === 'front') {
+                    video1.classList.add('front-camera-view');
+                    await setupSingleCamera({ video: { facingMode: "user" } }, video1);
+                } else if (mode === 'back') {
+                    await setupSingleCamera({ video: { facingMode: { exact: "environment" } } }, video1).catch(async () => {
+                        // Fallback caso falte propriedade estrita exact no dispositivo externo
+                        await setupSingleCamera({ video: { facingMode: "environment" } }, video1);
+                    });
+                } else if (mode === 'both') {
+                    viewWrapper.classList.add('split-mode');
+                    video2.style.display = 'block';
+                    video1.classList.add('front-camera-view');
+                    
+                    printLog("Tentando conexões simultâneas de hardware...");
+                    
+                    // Inicialização paralela de ambas as lentes
+                    let frontSuccess = false;
+                    let backSuccess = false;
+
+                    try {
+                        const streamF = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+                        video1.srcObject = streamF;
+                        streams.push(streamF);
+                        startMediaRecorder(streamF, "frontal");
+                        frontSuccess = true;
+                    } catch (e) { console.error("Erro lente frontal:", e); }
+
+                    try {
+                        const streamB = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+                        video2.srcObject = streamB;
+                        streams.push(streamB);
+                        startMediaRecorder(streamB, "traseira");
+                        backSuccess = true;
+                    } catch (e) { console.error("Erro lente traseira:", e); }
+
+                    if(!frontSuccess && !backSuccess) throw new Error("Nenhuma câmera pôde ser aberta.");
+                    if(!frontSuccess || !backSuccess) printLog("Aviso: Hardware limitado. Apenas uma câmera ativa.");
+                }
+
+                startTimers();
+                printLog("Gravação em loop iniciada (Blocos de 2m).");
+
+            } catch (err) {
+                alert("Erro ao acessar câmeras de vídeo: " + err.message);
+                stopCaptureSystem();
+            }
+        }
+
+        // Configuração para apenas 1 câmera ativa
+        async function setupSingleCamera(constraints, videoTarget) {
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            videoTarget.srcObject = stream;
+            streams.push(stream);
+            startMediaRecorder(stream, "cam");
+        }
+
+        // Mecanismo Grabber de Gravação Automatizada
+        function startMediaRecorder(stream, label) {
+            // Verificação de codecs nativos do Chrome Mobile para máxima performance
+            let options = { mimeType: 'video/webm;codecs=vp9' };
+            if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                options = { mimeType: 'video/webm;codecs=vp8' };
+                if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                    options = { mimeType: 'video/mp4' }; // Fallback iOS/Safari
+                }
+            }
+
+            const recorder = new MediaRecorder(stream, options);
+            let chunks = [];
+
+            recorder.ondataavailable = (e) => {
+                if (e.data && e.data.size > 0) chunks.push(e.data);
+            };
+
+            recorder.onstop = () => {
+                const blob = new Blob(chunks, { type: recorder.mimeType });
+                chunks = [];
+                saveVideoBlob(blob, label);
+                
+                // Reinicia o recorder dinamicamente se o stream global ainda estiver ativo
+                if (stream.active) {
+                    recorder.start();
+                }
+            };
+
+            // Inicia o ciclo gravando em fatias
+            recorder.start();
+            recorders.push(recorder);
+
+            // Corta e salva o arquivo a cada 2 minutos
+            if (!loopInterval) {
+                loopInterval = setInterval(() => {
+                    printLog("Ciclo de 2 minutos atingido. Rotacionando arquivos...");
+                    recorders.forEach(rec => {
+                        if(rec.state !== "inactive") rec.stop();
+                    });
+                }, chunkDuration);
+            }
+        }
+
+        // Baixa o Bloco de Vídeo Automaticamente para o Dispositivo
+        function saveVideoBlob(blob, label) {
+            const date = new Date();
+            const timestamp = `${date.getFullYear()}${String(date.getMonth()+1).padStart(2,'0')}${String(date.getDate()).padStart(2,'0')}_${String(date.getHours()).padStart(2,'0')}${String(date.getMinutes()).padStart(2,'0')}${String(date.getSeconds()).padStart(2,'0')}`;
+            const filename = `AutoCam_${label}_${timestamp}.webm`;
+
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            
+            setTimeout(() => {
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+            }, 100);
+        }
+
+        // Controle do Cronômetro de Tela
+        function startTimers() {
+            secondsElapsed = 0;
+            timerDisplay.innerText = "00:00";
+            elapsedTimer = setInterval(() => {
+                secondsElapsed++;
+                let mins = String(Math.floor(secondsElapsed / 60)).padStart(2, '0');
+                let secs = String(secondsElapsed % 60).padStart(2, '0');
+                timerDisplay.innerText = `${mins}:${secs}`;
+            }, 1000);
+        }
+
+        // Interrompe Todo o Sistema e Libera Câmeras
+        function stopCaptureSystem() {
+            clearInterval(loopInterval);
+            clearInterval(elapsedTimer);
+            loopInterval = null;
+            elapsedTimer = null;
+
+            recorders.forEach(rec => {
+                if(rec.state !== "inactive") rec.stop();
+            });
+            recorders = [];
+
+            streams.forEach(stream => {
+                stream.getTracks().forEach(track => track.stop());
+            });
+            streams = [];
+
+            video1.srcObject = null;
+            video2.srcObject = null;
+
+            toggleBlackout(false);
+            videoContainer.style.display = 'none';
+            document.getElementById('dashboardScreen').style.opacity = '1';
+            logSystem.style.display = 'none';
+        }
+
+        // Gerenciamento da Tela Oculta (Blackout Inteligente para o Carro)
+        function toggleBlackout(activate) {
+            if (activate) {
+                blackoutView.style.display = 'flex';
+                hudControl.style.opacity = '0';
+            } else {
+                blackoutView.style.display = 'none';
+                hudControl.style.opacity = '1';
+            }
+        }
+
+        // Evitar desligamento da tela (WakeLock API) se suportado pelo aparelho/Chrome
+        let wakeLock = null;
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                }
+            } catch (err) {
+                console.warn(`WakeLock falhou: ${err.message}`);
+            }
+        }
+        document.addEventListener('visibilitychange', () => {
+            if (wakeLock !== null && document.visibilityState === 'visible') {
+                requestWakeLock();
+            }
+        });
+        requestWakeLock();
+    </script>
+</body>
+</html>
