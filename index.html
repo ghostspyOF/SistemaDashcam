@@ -238,6 +238,15 @@
             color: var(--laranja-vivo);
         }
 
+        /* Destaque para o botão alternado */
+        .modal-btn.highlighted {
+            border: 1px solid rgba(255, 102, 0, 0.5);
+            background: rgba(255, 102, 0, 0.05);
+        }
+        .modal-btn.highlighted i {
+            color: var(--laranja-vivo);
+        }
+
         .modal-close-area {
             margin-top: 22px;
             font-size: 0.9rem;
@@ -267,10 +276,6 @@
             gap: 4px;
             background-color: #000;
             position: relative;
-        }
-
-        .viewfinders-wrapper.split-mode video {
-            height: 50%;
         }
 
         video {
@@ -328,7 +333,6 @@
             box-shadow: 0 0 8px #ff0000;
         }
 
-        /* Classe para estado de pausa no indicador */
         .rec-dot.paused {
             background-color: #ffcc00 !important;
             box-shadow: 0 0 8px #ffcc00 !important;
@@ -472,7 +476,7 @@
             grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
             gap: 15px;
             flex: 1;
-            margin-bottom: 100px; /* Garante espaço para o painel inferior de ações */
+            margin-bottom: 100px;
         }
 
         .video-card {
@@ -537,7 +541,6 @@
             font-size: 0.95rem;
         }
 
-        /* Painel inferior com ações em massa na pasta de armazenamento */
         .gallery-bulk-actions {
             position: sticky;
             bottom: -20px;
@@ -654,15 +657,7 @@
             to { opacity: 0.3; }
         }
 
-        /* Responsividade Horizontal (Modo Paisagem para Carro) */
         @media (orientation: landscape) {
-            .viewfinders-wrapper.split-mode {
-                flex-direction: row;
-            }
-            .viewfinders-wrapper.split-mode video {
-                width: 50%;
-                height: 100%;
-            }
             .modal-buttons-grid {
                 flex-direction: row;
             }
@@ -710,6 +705,11 @@
                     <i class="fa-solid fa-road"></i>
                     <span>Câmera Traseira</span>
                 </div>
+                <!-- NOVO TERCEIRO BOTÃO REQUISITADO -->
+                <div class="modal-btn highlighted" onclick="startCapture('alternated')">
+                    <i class="fa-solid fa-shuffle"></i>
+                    <span>Modo Alternado (4 min)</span>
+                </div>
             </div>
 
             <div class="modal-close-area" onclick="closeCameraModal()">
@@ -720,8 +720,8 @@
 
     <div class="recording-container" id="videoContainer">
         <div class="viewfinders-wrapper" id="viewWrapper">
+            <!-- Um elemento de vídeo principal serve como visor dinâmico do Canvas -->
             <video id="videoElement1" autoplay playsinline muted></video>
-            <video id="videoElement2" autoplay playsinline muted style="display: none;"></video>
         </div>
 
         <div class="recording-hud" id="hudControl">
@@ -740,7 +740,6 @@
                     <i class="fa-solid fa-arrow-left"></i> Voltar
                 </button>
                 
-                <!-- Botão Adicionado de Play/Pausa no HUD -->
                 <button class="hud-btn" onclick="togglePlayPauseRecording()" id="playPauseBtn" style="border-color: #ff9900;">
                     <i class="fa-solid fa-play" id="playPauseIcon"></i> <span id="playPauseText">Iniciar</span>
                 </button>
@@ -770,7 +769,6 @@
         
         <div class="video-grid" id="videoGrid"></div>
         
-        <!-- Botões Adicionados de Ações em Massa no Final do Armazenamento -->
         <div class="gallery-bulk-actions">
             <button class="bulk-btn bulk-btn-download" onclick="downloadAllVideos()">
                 <i class="fa-solid fa-cloud-arrow-down"></i> Download
@@ -790,30 +788,30 @@
         </div>
     </div>
 
-    <!-- Canvas Escondido para Processar a Estampa de Texto em Tempo Real -->
     <canvas id="hiddenCanvas" style="display:none;"></canvas>
 
     <script>
         // CONFIGURAÇÕES E ESTADO GLOBAL
-        let streams = [];
+        let activeVideoTrack = null;
+        let audioStream = null;
         let recorders = [];
         let loopInterval = null;
+        let alternateInterval = null;
         let elapsedTimer = null;
         let canvasRenderInterval = null;
         let secondsElapsed = 0;
-        const chunkDuration = 120000; // 2 minutos (120000 ms)
+        let chunkDuration = 120000; // Padrão: 2 minutos para modos normais
         const maxVideoLimit = 32;
         
-        // Controle do estado do play/pause manual requisitado
         let isRecordingActive = false;
         let currentModeCaptured = '';
+        let currentAlternatedCamera = 'front'; // Controla se o alternado está exibindo frontal ou traseira
 
         // Elementos do DOM
         const cameraModal = document.getElementById('cameraModal');
         const videoContainer = document.getElementById('videoContainer');
         const viewWrapper = document.getElementById('viewWrapper');
         const video1 = document.getElementById('videoElement1');
-        const video2 = document.getElementById('videoElement2');
         const timerDisplay = document.getElementById('timerDisplay');
         const blackoutView = document.getElementById('blackoutView');
         const hudControl = document.getElementById('hudControl');
@@ -825,14 +823,13 @@
         const hiddenCanvas = document.getElementById('hiddenCanvas');
         const ctx = hiddenCanvas.getContext('2d');
 
-        // INICIALIZAÇÃO DO BANCO DE DADOS LOCAL (IndexedDB)
+        // BANCO DE DADOS LOCAL (IndexedDB)
         let db = null;
         const dbRequest = indexedDB.open("AutoCamStorage", 1);
 
         dbRequest.onupgradeneeded = function(e) {
             let database = e.target.result;
             if (!database.objectStoreNames.contains("videos")) {
-                // Cria a store com timestamp ordenado autoincrementado
                 database.createObjectStore("videos", { keyPath: "id", autoIncrement: true });
             }
         };
@@ -846,14 +843,12 @@
             showToast("Erro ao inicializar armazenamento interno.");
         };
 
-        // Torna os avisos flutuantes visíveis temporariamente
         function showToast(text) {
             toastSystem.innerText = text;
             toastSystem.classList.add('show');
             setTimeout(() => toastSystem.classList.remove('show'), 3500);
         }
 
-        // Atualiza os contadores visuais de arquivos salvos
         function updateStorageUI() {
             if (!db) return;
             const transaction = db.transaction(["videos"], "readonly");
@@ -868,7 +863,6 @@
             };
         }
 
-        // Abre / Fecha Modais Básicos
         function openCameraModal() { cameraModal.classList.add('active'); }
         function closeCameraModal() { cameraModal.classList.remove('active'); }
 
@@ -879,64 +873,90 @@
             videoContainer.style.display = 'flex';
             
             video1.style.display = 'block';
-            video2.style.display = 'none';
             video1.className = '';
-            video2.className = '';
-            viewWrapper.classList.remove('split-mode');
             
-            // Força o estado a iniciar pausado para posicionamento útil
             isRecordingActive = false;
             currentModeCaptured = mode;
+            currentAlternatedCamera = 'front'; // Começa sempre pela frontal
             updatePlayPauseButtonUI();
 
+            // Configura duração padrão do arquivo
+            if (mode === 'alternated') {
+                chunkDuration = 240000; // 4 minutos exatos (240000ms)
+            } else {
+                chunkDuration = 120000; // 2 minutos padrão
+            }
+
             try {
-                if (mode === 'front') {
+                // 1. Captura o Áudio separadamente na melhor qualidade possível
+                audioStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+
+                // 2. Inicializa o fluxo de vídeo baseado no modo escolhido
+                if (mode === 'front' || mode === 'alternated') {
                     video1.classList.add('front-camera-view');
-                    await setupSingleCamera({ video: { facingMode: "user" } }, video1);
+                    await switchVideoTrack({ width: { ideal: 3840 }, height: { ideal: 2160 }, facingMode: "user" });
                 } else if (mode === 'back') {
-                    await setupSingleCamera({ video: { facingMode: { exact: "environment" } } }, video1).catch(async () => {
-                        await setupSingleCamera({ video: { facingMode: "environment" } }, video1);
+                    await switchVideoTrack({ width: { ideal: 3840 }, height: { ideal: 2160 }, facingMode: { exact: "environment" } }).catch(async () => {
+                        await switchVideoTrack({ width: { ideal: 3840 }, height: { ideal: 2160 }, facingMode: "environment" });
                     });
                 }
 
-                showToast("Câmera aberta. Posicione o aparelho e clique em Iniciar.");
+                showToast("Câmeras e áudio prontos. Toque em 'Gravar' para iniciar.");
 
             } catch (err) {
-                alert("Falha de acesso às câmeras: " + err.message);
+                alert("Falha de acesso aos sensores (Câmera/Microfone): " + err.message);
                 stopCaptureSystem();
             }
         }
 
-        async function setupSingleCamera(constraints, videoTarget) {
-            const stream = await navigator.mediaDevices.getUserMedia(constraints);
-            videoTarget.srcObject = stream;
-            streams.push(stream);
+        // Troca fisicamente o fluxo de vídeo de forma otimizada mantendo a resolução máxima
+        async function switchVideoTrack(constraints) {
+            if (activeVideoTrack) {
+                activeVideoTrack.stop();
+            }
+            const videoStream = await navigator.mediaDevices.getUserMedia({ video: constraints });
+            activeVideoTrack = videoStream.getVideoTracks()[0];
             
-            // Aguarda as dimensões reais do vídeo carregarem para dimensionar o Canvas corretamente
-            videoTarget.onloadedmetadata = () => {
-                hiddenCanvas.width = videoTarget.videoWidth || 1280;
-                hiddenCanvas.height = videoTarget.videoHeight || 720;
+            video1.srcObject = new MediaStream([activeVideoTrack]);
+            
+            await new Promise((resolve) => {
+                video1.onloadedmetadata = () => {
+                    hiddenCanvas.width = video1.videoWidth || 1920;
+                    hiddenCanvas.height = video1.videoHeight || 1080;
+                    resolve();
+                };
+            });
+
+            // Se for a primeira vez, inicializa a esteira de renderização e o recorder
+            if (!canvasRenderInterval) {
+                startCanvasStamping(video1);
                 
-                // Cria e inicia o renderizador de estampas e textos no Canvas
-                startCanvasStamping(videoTarget);
+                const canvasStream = hiddenCanvas.captureStream(30);
+                // Injeta a trilha de áudio do microfone coletada no início diretamente no fluxo de gravação do canvas
+                if (audioStream && audioStream.getAudioTracks().length > 0) {
+                    canvasStream.addTrack(audioStream.getAudioTracks()[0]);
+                }
                 
-                // Captura o fluxo resultante do Canvas contendo a imagem + texto carimbado
-                const canvasStream = hiddenCanvas.captureStream(30); 
-                startMediaRecorder(canvasStream, "Camera");
-            };
+                startMediaRecorder(canvasStream, modeToLabel(currentModeCaptured));
+            }
         }
 
-        // Desenha quadro a quadro o vídeo original injetando as strings textuais requisitadas
+        function modeToLabel(mode) {
+            if (mode === 'front') return "Frontal";
+            if (mode === 'back') return "Traseira";
+            return "Alternada";
+        }
+
+        // Renderiza quadro a quadro desenhando no Canvas oculto e aplicando a estampa em string única na base
         function startCanvasStamping(videoSource) {
             if (canvasRenderInterval) clearInterval(canvasRenderInterval);
             
             canvasRenderInterval = setInterval(() => {
                 if (videoSource.paused || videoSource.ended) return;
                 
-                // Limpa e desenha o frame atual da câmera
                 ctx.clearRect(0, 0, hiddenCanvas.width, hiddenCanvas.height);
                 
-                // Se for câmera frontal, espelha o Canvas para acompanhar o visor perfeitamente
+                // Espelha horizontalmente apenas quando a câmera frontal estiver ativa em tela
                 if (videoSource.classList.contains('front-camera-view')) {
                     ctx.save();
                     ctx.translate(hiddenCanvas.width, 0);
@@ -947,23 +967,14 @@
                     ctx.drawImage(videoSource, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
                 }
                 
-                // Configuração comum para textos com fundo/borda para excelente leitura ao sol ou noite
-                ctx.fillStyle = "#ff6600"; // Cor Laranja Requisitada
+                // Configuração visual da legenda carimbada na base
+                ctx.fillStyle = "#ff6600"; 
                 ctx.shadowColor = "black";
                 ctx.shadowBlur = 6;
                 ctx.lineWidth = 4;
                 ctx.strokeStyle = "black";
                 
-                // 1. Injeta o Nome centralizado no Topo
-                ctx.font = "bold " + Math.max(22, hiddenCanvas.height * 0.045) + "px sans-serif";
-                ctx.textAlign = "center";
-                const textoNome = "Mayckon";
-                const xCentro = hiddenCanvas.width / 2;
-                const yTopo = hiddenCanvas.height * 0.07;
-                ctx.strokeText(textoNome, xCentro, yTopo);
-                ctx.fillText(textoNome, xCentro, yTopo);
-                
-                // 2. Injeta a Data e Horário na Base Centralizada
+                // Montagem da frase única solicitada: Mayckon: Data - Horário e Minuto rolando
                 const d = new Date();
                 const dia = String(d.getDate()).padStart(2, '0');
                 const mes = String(d.getMonth() + 1).padStart(2, '0');
@@ -971,25 +982,34 @@
                 const hora = String(d.getHours()).padStart(2, '0');
                 const min = String(d.getMinutes()).padStart(2, '0');
                 const seg = String(d.getSeconds()).padStart(2, '0');
-                const textoDataHora = `${dia}/${mes}/${ano} ${hora}:${min}:${seg}`;
+                
+                let minsHUD = String(Math.floor(secondsElapsed / 60)).padStart(2, '0');
+                let secsHUD = String(secondsElapsed % 60).padStart(2, '0');
+                
+                const textoEstampaUnica = `Mayckon: ${dia}/${mes}/${ano} ${hora}:${min}:${seg} - ${minsHUD}:${secsHUD}`;
                 
                 ctx.font = "bold " + Math.max(18, hiddenCanvas.height * 0.038) + "px monospace";
-                const yBase = hiddenCanvas.height * 0.93;
-                ctx.strokeText(textoDataHora, xCentro, yBase);
-                ctx.fillText(textoDataHora, xCentro, yBase);
+                ctx.textAlign = "center";
+                const xCentro = hiddenCanvas.width / 2;
+                const yBase = hiddenCanvas.height * 0.94;
                 
-                // Reseta as sombras para não afetar outros elementos involuntariamente
+                ctx.strokeText(textoEstampaUnica, xCentro, yBase);
+                ctx.fillText(textoEstampaUnica, xCentro, yBase);
+                
                 ctx.shadowBlur = 0;
-            }, 33); // Aprox 30 frames por segundo
+            }, 33);
         }
 
-        // LÓGICA DO GRAVADOR E GERENCIAMENTO FIFO (MÁXIMO 32 VÍDEOS)
+        // LÓGICA DO GRAVADOR COM ALTA QUALIDADE DE TAXA DE BITS
         function startMediaRecorder(stream, label) {
-            let options = { mimeType: 'video/webm;codecs=vp9' };
+            let options = { 
+                mimeType: 'video/webm;codecs=vp9,opus',
+                videoBitsPerSecond: 5000000 // Força qualidade máxima em 5 Mbps
+            };
             if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-                options = { mimeType: 'video/webm;codecs=vp8' };
+                options = { mimeType: 'video/webm;codecs=vp8,opus', videoBitsPerSecond: 5000000 };
                 if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-                    options = { mimeType: 'video/mp4' }; 
+                    options = { mimeType: 'video/mp4', videoBitsPerSecond: 5000000 }; 
                 }
             }
 
@@ -1004,56 +1024,76 @@
                 const blob = new Blob(chunks, { type: recorder.mimeType });
                 chunks = [];
                 
-                // Grava o blob de vídeo gerado no banco de dados interno
-                if (blob.size > 5000) { // Evita salvar fragmentos vazios se for parado logo no início
+                if (blob.size > 5000) {
                     await saveVideoToInternalDatabase(blob, label);
                 }
                 
                 if (stream.active && isRecordingActive) {
-                    recorder.start();
+                    // Se atingiu 4 minutos no modo alternado, encerra de vez o sistema automaticamente
+                    if (currentModeCaptured === 'alternated' && secondsElapsed >= 240) {
+                        stopCaptureSystem();
+                    } else {
+                        recorder.start();
+                    }
                 }
             };
 
-            // Mantido o objeto armazenado mas ele só dará `.start()` efetivo se isRecordingActive for verdadeiro
             recorders.push({ recorderInstance: recorder, streamInstance: stream, labelInstance: label });
         }
 
-        // Controle manual de Play / Pause da gravação ativa requisitado
+        // Inicia ou pausa os loops e cronômetros
         function togglePlayPauseRecording() {
             if (recorders.length === 0) return;
 
             if (!isRecordingActive) {
-                // Ativar Gravação (Play)
                 isRecordingActive = true;
                 recorders.forEach(item => {
-                    if (item.recorderInstance.state === "inactive") {
-                        item.recorderInstance.start();
-                    }
+                    if (item.recorderInstance.state === "inactive") item.recorderInstance.start();
                 });
                 startTimers();
                 
-                if (!loopInterval) {
-                    loopInterval = setInterval(() => {
+                // Loop de fracionamento de arquivos
+                loopInterval = setInterval(() => {
+                    if (isRecordingActive) {
+                        recorders.forEach(item => {
+                            if(item.recorderInstance.state !== "inactive") item.recorderInstance.stop();
+                        });
+                    }
+                }, chunkDuration);
+
+                // LÓGICA EXCLUSIVA DO TERCEIRO BOTÃO ALTERNADO (Muda câmera a cada 30 segundos)
+                if (currentModeCaptured === 'alternated') {
+                    alternateInterval = setInterval(async () => {
                         if (isRecordingActive) {
-                            recorders.forEach(item => {
-                                if(item.recorderInstance.state !== "inactive") item.recorderInstance.stop();
-                            });
+                            if (currentAlternatedCamera === 'front') {
+                                currentAlternatedCamera = 'back';
+                                video1.classList.remove('front-camera-view');
+                                showToast("Alternando para Câmera Traseira...");
+                                await switchVideoTrack({ width: { ideal: 3840 }, height: { ideal: 2160 }, facingMode: "environment" }).catch(async ()=>{
+                                    await switchVideoTrack({ width: { ideal: 3840 }, height: { ideal: 2160 }, facingMode: { exact: "environment" } });
+                                });
+                            } else {
+                                currentAlternatedCamera = 'front';
+                                video1.classList.add('front-camera-view');
+                                showToast("Alternando para Câmera Frontal...");
+                                await switchVideoTrack({ width: { ideal: 3840 }, height: { ideal: 2160 }, facingMode: "user" });
+                            }
                         }
-                    }, chunkDuration);
+                    }, 30000); // 30 segundos exatos
                 }
+
                 showToast("Gravação iniciada!");
             } else {
-                // Pausar Gravação (Pause)
                 isRecordingActive = false;
                 clearInterval(loopInterval);
+                clearInterval(alternateInterval);
                 clearInterval(elapsedTimer);
                 loopInterval = null;
+                alternateInterval = null;
                 elapsedTimer = null;
 
                 recorders.forEach(item => {
-                    if(item.recorderInstance.state !== "inactive") {
-                        item.recorderInstance.stop();
-                    }
+                    if(item.recorderInstance.state !== "inactive") item.recorderInstance.stop();
                 });
                 showToast("Gravação pausada. Fragmento salvo.");
             }
@@ -1076,7 +1116,6 @@
             }
         }
 
-        // SALVAR NO BANCO DE DADOS E APAGAR O MAIS ANTIGO CASO ULTRAPASSE 32
         async function saveVideoToInternalDatabase(blob, label) {
             if (!db) return;
 
@@ -1084,29 +1123,20 @@
             const timestampText = `${String(date.getDate()).padStart(2,'0')}/${String(date.getMonth()+1).padStart(2,'0')} às ${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`;
             const name = `Vídeo ${label} (${timestampText})`;
 
-            // Passo 1: Verificar e limpar se já possui 32 elementos (Garantia FIFO)
             const transactionCheck = db.transaction(["videos"], "readwrite");
             const storeCheck = transactionCheck.objectStore("videos");
             
-            // Abre cursor ordenado por ID (o autoincremento garante que os menores IDs são os mais antigos)
             storeCheck.getAll().onsuccess = function(event) {
                 let allRecords = event.target.result;
                 
                 if (allRecords.length >= maxVideoLimit) {
-                    // Ordena por ID explicitamente por segurança (mais antigo primeiro)
                     allRecords.sort((a, b) => a.id - b.id);
-                    
-                    // Calcula quantos registros excedem o limite atual para remover
                     let overflowCount = (allRecords.length - maxVideoLimit) + 1;
-                    
                     for(let i = 0; i < overflowCount; i++) {
-                        let oldestId = allRecords[i].id;
-                        storeCheck.delete(oldestId);
+                        storeCheck.delete(allRecords[i].id);
                     }
-                    console.log(`Removido(s) registro(s) antigo(s) para manter o limite estável de ${maxVideoLimit}.`);
                 }
 
-                // Passo 2: Inserir o novo vídeo gravado
                 const insertTx = db.transaction(["videos"], "readwrite");
                 const insertStore = insertTx.objectStore("videos");
                 insertStore.add({
@@ -1117,14 +1147,11 @@
 
                 insertTx.oncomplete = function() {
                     updateStorageUI();
-                    console.log("Novo bloco de vídeo salvo na pasta do sistema.");
                 };
             };
         }
 
-        // CRONÔMETRO ATIVO
         function startTimers() {
-            // Se já estivesse contando de uma pausa anterior, mantém. Caso contrário inicia do zero.
             if (secondsElapsed === 0) {
                 timerDisplay.innerText = "00:00";
             }
@@ -1133,34 +1160,41 @@
                 let mins = String(Math.floor(secondsElapsed / 60)).padStart(2, '0');
                 let secs = String(secondsElapsed % 60).padStart(2, '0');
                 timerDisplay.innerText = `${mins}:${secs}`;
+
+                // Se atingir os 4 minutos (240 segundos) no modo alternado, encerra automaticamente a gravação
+                if (currentModeCaptured === 'alternated' && secondsElapsed >= 240) {
+                    showToast("Limite de 4 minutos alcançado. Salvando arquivo final...");
+                    stopCaptureSystem();
+                }
             }, 1000);
         }
 
-        // PARAR SISTEMA TOTAL E AJUSTAR COMPORTAMENTO (SALVA O VÍDEO DO MOMENTO E FECHA)
         function stopCaptureSystem() {
             clearInterval(loopInterval);
+            clearInterval(alternateInterval);
             clearInterval(elapsedTimer);
             if (canvasRenderInterval) clearInterval(canvasRenderInterval);
             loopInterval = null;
+            alternateInterval = null;
             elapsedTimer = null;
             canvasRenderInterval = null;
             secondsElapsed = 0;
 
-            // Para os gravadores - o gatilho "onstop" vai rodar e salvar automaticamente o bloco incompleto atual no IndexedDB se ativo
             recorders.forEach(item => {
                 if(item.recorderInstance.state !== "inactive") item.recorderInstance.stop();
             });
             recorders = [];
 
-            // Desliga fisicamente os sensores de câmera do celular
-            streams.forEach(stream => {
-                stream.getTracks().forEach(track => track.stop());
-            });
-            streams = [];
+            if (activeVideoTrack) {
+                activeVideoTrack.stop();
+                activeVideoTrack = null;
+            }
+            if (audioStream) {
+                audioStream.getTracks().forEach(track => track.stop());
+                audioStream = null;
+            }
 
             video1.srcObject = null;
-            video2.srcObject = null;
-
             isRecordingActive = false;
             toggleBlackout(false);
             videoContainer.style.display = 'none';
@@ -1168,11 +1202,10 @@
             
             setTimeout(() => {
                 updateStorageUI();
-                showToast("Gravação encerrada. Vídeo armazenado.");
+                showToast("Gravação encerrada e salva.");
             }, 600);
         }
 
-        // CONTROLE DA TELA PRETA OBSOLUTA (BLACKOUT)
         function toggleBlackout(activate) {
             if (activate) {
                 blackoutView.style.display = 'flex';
@@ -1183,7 +1216,6 @@
             }
         }
 
-        // MECANISMO DE GERENCIAMENTO DA GALERIA INTERNA
         function openGallery() {
             if (!db) return;
             videoGrid.innerHTML = "";
@@ -1192,10 +1224,8 @@
             const transaction = db.transaction(["videos"], "readonly");
             const store = transaction.objectStore("videos");
             
-            // Carrega todos os registros salvos do mais recente para o mais antigo
             store.getAll().onsuccess = function(e) {
                 const records = e.target.result;
-                // Inverter ordem para mostrar o último gravado primeiro na lista
                 records.sort((a, b) => b.id - a.id);
 
                 if (records.length === 0) {
@@ -1225,11 +1255,8 @@
             };
         }
 
-        function closeGallery() {
-            galleryPanel.style.display = "none";
-        }
+        function closeGallery() { galleryPanel.style.display = "none"; }
 
-        // REPRODUÇÃO E ACESSOS DIRETOS AOS BLOBS
         function playInternalVideo(id) {
             const tx = db.transaction(["videos"], "readonly");
             const store = tx.objectStore("videos");
@@ -1245,9 +1272,7 @@
 
         function closeInternalPlayer() {
             internalPlayer.pause();
-            if (internalPlayer.src) {
-                URL.revokeObjectURL(internalPlayer.src);
-            }
+            if (internalPlayer.src) URL.revokeObjectURL(internalPlayer.src);
             internalPlayer.src = "";
             playerOverlay.style.display = "none";
         }
@@ -1271,7 +1296,6 @@
             };
         }
 
-        // NOVO: Função para baixar todos os vídeos de uma só vez sequencialmente
         function downloadAllVideos() {
             if (!db) return;
             const tx = db.transaction(["videos"], "readonly");
@@ -1293,7 +1317,7 @@
                         a.click();
                         document.body.removeChild(a);
                         URL.revokeObjectURL(url);
-                    }, index * 400); // Pequeno atraso para o navegador gerenciar múltiplos downloads sem travar
+                    }, index * 400);
                 });
             };
         }
@@ -1306,32 +1330,28 @@
                 tx.oncomplete = function() {
                     showToast("Vídeo excluído.");
                     updateStorageUI();
-                    openGallery(); // recarrega a grade
+                    openGallery();
                 };
             }
         }
 
-        // NOVO: Função para excluir em massa limpando o armazenamento interno
         function deleteAllVideos() {
             if (!db) return;
-            if (confirm("Aviso Crítico: Tem certeza de que deseja deletar TODOS os vídeos armazenados na pasta do sistema de uma só vez?")) {
+            if (confirm("Aviso Crítico: Tem certeza de que deseja deletar TODOS os vídeos armazenados?")) {
                 const tx = db.transaction(["videos"], "readwrite");
                 const store = tx.objectStore("videos");
-                const clearRequest = store.clear();
-                
-                clearRequest.onsuccess = function() {
-                    showToast("Todos os vídeos foram removidos do armazenamento.");
+                store.clear().onsuccess = function() {
+                    showToast("Todos os vídeos foram removidos.");
                     updateStorageUI();
-                    openGallery(); // recarrega a grade
+                    openGallery();
                 };
             }
         }
 
-        // PREVENÇÃO DE BLOQUEIO DE TELA AUTOMÁTICO (WAKELOCK)
         let wakeLock = null;
         async function requestWakeLock() {
             try {
-                if ('wakeLock' in navigator) { wakeLock = await navigator.wakeLock.request('screen'); }
+                if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
             } catch (err) { console.warn(`WakeLock indisponível: ${err.message}`); }
         }
         document.addEventListener('visibilitychange', () => {
