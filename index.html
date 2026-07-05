@@ -1,5 +1,4 @@
 
-
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -711,10 +710,6 @@
                     <i class="fa-solid fa-road"></i>
                     <span>Câmera Traseira</span>
                 </div>
-                <div class="modal-btn" onclick="startCapture('both')">
-                    <i class="fa-solid fa-clone"></i>
-                    <span>Abrir Ambas</span>
-                </div>
             </div>
 
             <div class="modal-close-area" onclick="closeCameraModal()">
@@ -795,12 +790,16 @@
         </div>
     </div>
 
+    <!-- Canvas Escondido para Processar a Estampa de Texto em Tempo Real -->
+    <canvas id="hiddenCanvas" style="display:none;"></canvas>
+
     <script>
         // CONFIGURAÇÕES E ESTADO GLOBAL
         let streams = [];
         let recorders = [];
         let loopInterval = null;
         let elapsedTimer = null;
+        let canvasRenderInterval = null;
         let secondsElapsed = 0;
         const chunkDuration = 120000; // 2 minutos (120000 ms)
         const maxVideoLimit = 32;
@@ -823,6 +822,8 @@
         const videoGrid = document.getElementById('videoGrid');
         const playerOverlay = document.getElementById('playerOverlay');
         const internalPlayer = document.getElementById('internalPlayer');
+        const hiddenCanvas = document.getElementById('hiddenCanvas');
+        const ctx = hiddenCanvas.getContext('2d');
 
         // INICIALIZAÇÃO DO BANCO DE DADOS LOCAL (IndexedDB)
         let db = null;
@@ -896,32 +897,6 @@
                     await setupSingleCamera({ video: { facingMode: { exact: "environment" } } }, video1).catch(async () => {
                         await setupSingleCamera({ video: { facingMode: "environment" } }, video1);
                     });
-                } else if (mode === 'both') {
-                    viewWrapper.classList.add('split-mode');
-                    video2.style.display = 'block';
-                    video1.classList.add('front-camera-view');
-                    
-                    let frontSuccess = false;
-                    let backSuccess = false;
-
-                    try {
-                        const streamF = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-                        video1.srcObject = streamF;
-                        streams.push(streamF);
-                        startMediaRecorder(streamF, "Frontal");
-                        frontSuccess = true;
-                    } catch (e) { console.error("Erro frontal:", e); }
-
-                    try {
-                        const streamB = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-                        video2.srcObject = streamB;
-                        streams.push(streamB);
-                        startMediaRecorder(streamB, "Traseira");
-                        backSuccess = true;
-                    } catch (e) { console.error("Erro trasero:", e); }
-
-                    if(!frontSuccess && !backSuccess) throw new Error("Nenhum sensor de imagem disponível.");
-                    if(!frontSuccess || !backSuccess) showToast("Aviso: Hardware limitado para gravação dupla.");
                 }
 
                 showToast("Câmera aberta. Posicione o aparelho e clique em Iniciar.");
@@ -936,7 +911,76 @@
             const stream = await navigator.mediaDevices.getUserMedia(constraints);
             videoTarget.srcObject = stream;
             streams.push(stream);
-            startMediaRecorder(stream, "Camera");
+            
+            // Aguarda as dimensões reais do vídeo carregarem para dimensionar o Canvas corretamente
+            videoTarget.onloadedmetadata = () => {
+                hiddenCanvas.width = videoTarget.videoWidth || 1280;
+                hiddenCanvas.height = videoTarget.videoHeight || 720;
+                
+                // Cria e inicia o renderizador de estampas e textos no Canvas
+                startCanvasStamping(videoTarget);
+                
+                // Captura o fluxo resultante do Canvas contendo a imagem + texto carimbado
+                const canvasStream = hiddenCanvas.captureStream(30); 
+                startMediaRecorder(canvasStream, "Camera");
+            };
+        }
+
+        // Desenha quadro a quadro o vídeo original injetando as strings textuais requisitadas
+        function startCanvasStamping(videoSource) {
+            if (canvasRenderInterval) clearInterval(canvasRenderInterval);
+            
+            canvasRenderInterval = setInterval(() => {
+                if (videoSource.paused || videoSource.ended) return;
+                
+                // Limpa e desenha o frame atual da câmera
+                ctx.clearRect(0, 0, hiddenCanvas.width, hiddenCanvas.height);
+                
+                // Se for câmera frontal, espelha o Canvas para acompanhar o visor perfeitamente
+                if (videoSource.classList.contains('front-camera-view')) {
+                    ctx.save();
+                    ctx.translate(hiddenCanvas.width, 0);
+                    ctx.scale(-1, 1);
+                    ctx.drawImage(videoSource, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+                    ctx.restore();
+                } else {
+                    ctx.drawImage(videoSource, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+                }
+                
+                // Configuração comum para textos com fundo/borda para excelente leitura ao sol ou noite
+                ctx.fillStyle = "#ff6600"; // Cor Laranja Requisitada
+                ctx.shadowColor = "black";
+                ctx.shadowBlur = 6;
+                ctx.lineWidth = 4;
+                ctx.strokeStyle = "black";
+                
+                // 1. Injeta o Nome centralizado no Topo
+                ctx.font = "bold " + Math.max(22, hiddenCanvas.height * 0.045) + "px sans-serif";
+                ctx.textAlign = "center";
+                const textoNome = "Mayckon";
+                const xCentro = hiddenCanvas.width / 2;
+                const yTopo = hiddenCanvas.height * 0.07;
+                ctx.strokeText(textoNome, xCentro, yTopo);
+                ctx.fillText(textoNome, xCentro, yTopo);
+                
+                // 2. Injeta a Data e Horário na Base Centralizada
+                const d = new Date();
+                const dia = String(d.getDate()).padStart(2, '0');
+                const mes = String(d.getMonth() + 1).padStart(2, '0');
+                const ano = d.getFullYear();
+                const hora = String(d.getHours()).padStart(2, '0');
+                const min = String(d.getMinutes()).padStart(2, '0');
+                const seg = String(d.getSeconds()).padStart(2, '0');
+                const textoDataHora = `${dia}/${mes}/${ano} ${hora}:${min}:${seg}`;
+                
+                ctx.font = "bold " + Math.max(18, hiddenCanvas.height * 0.038) + "px monospace";
+                const yBase = hiddenCanvas.height * 0.93;
+                ctx.strokeText(textoDataHora, xCentro, yBase);
+                ctx.fillText(textoDataHora, xCentro, yBase);
+                
+                // Reseta as sombras para não afetar outros elementos involuntariamente
+                ctx.shadowBlur = 0;
+            }, 33); // Aprox 30 frames por segundo
         }
 
         // LÓGICA DO GRAVADOR E GERENCIAMENTO FIFO (MÁXIMO 32 VÍDEOS)
@@ -1096,8 +1140,10 @@
         function stopCaptureSystem() {
             clearInterval(loopInterval);
             clearInterval(elapsedTimer);
+            if (canvasRenderInterval) clearInterval(canvasRenderInterval);
             loopInterval = null;
             elapsedTimer = null;
+            canvasRenderInterval = null;
             secondsElapsed = 0;
 
             // Para os gravadores - o gatilho "onstop" vai rodar e salvar automaticamente o bloco incompleto atual no IndexedDB se ativo
