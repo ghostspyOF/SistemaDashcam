@@ -1,4 +1,5 @@
 
+
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -328,6 +329,13 @@
             box-shadow: 0 0 8px #ff0000;
         }
 
+        /* Classe para estado de pausa no indicador */
+        .rec-dot.paused {
+            background-color: #ffcc00 !important;
+            box-shadow: 0 0 8px #ffcc00 !important;
+            animation: none !important;
+        }
+
         .rec-timer {
             font-family: monospace;
             font-size: 1rem;
@@ -465,6 +473,7 @@
             grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
             gap: 15px;
             flex: 1;
+            margin-bottom: 100px; /* Garante espaço para o painel inferior de ações */
         }
 
         .video-card {
@@ -527,6 +536,60 @@
             color: #666;
             padding: 40px 0;
             font-size: 0.95rem;
+        }
+
+        /* Painel inferior com ações em massa na pasta de armazenamento */
+        .gallery-bulk-actions {
+            position: sticky;
+            bottom: -20px;
+            left: 0;
+            width: calc(100% + 40px);
+            margin-left: -20px;
+            margin-top: auto;
+            background: rgba(10, 10, 10, 0.9);
+            border-top: 1px solid var(--vidro-borda);
+            backdrop-filter: var(--vidro-blur);
+            -webkit-backdrop-filter: var(--vidro-blur);
+            padding: 20px;
+            display: flex;
+            gap: 15px;
+            z-index: 95;
+        }
+
+        .bulk-btn {
+            flex: 1;
+            padding: 16px;
+            border-radius: 14px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            color: #fff;
+            border: none;
+            transition: all 0.2s ease;
+        }
+
+        .bulk-btn-download {
+            background: var(--laranja-vivo);
+            box-shadow: 0 4px 15px var(--laranja-glow);
+        }
+
+        .bulk-btn-download:active {
+            transform: scale(0.97);
+            background: #e05a00;
+        }
+
+        .bulk-btn-delete {
+            background: rgba(255, 0, 0, 0.2);
+            border: 1px solid #ff3333;
+        }
+
+        .bulk-btn-delete:active {
+            transform: scale(0.97);
+            background: rgba(255, 0, 0, 0.35);
         }
 
         /* --- PLAYER DE VÍDEO POPUP INTERNO --- */
@@ -669,7 +732,7 @@
         <div class="recording-hud" id="hudControl">
             <div class="hud-top">
                 <div class="rec-indicator">
-                    <div class="rec-dot"></div>
+                    <div class="rec-dot" id="recDotElement"></div>
                     <div class="rec-timer" id="timerDisplay">00:00</div>
                 </div>
                 <div class="hud-system-info" id="liveCounterHUD">
@@ -681,6 +744,12 @@
                 <button class="hud-btn" onclick="stopCaptureSystem()">
                     <i class="fa-solid fa-arrow-left"></i> Voltar
                 </button>
+                
+                <!-- Botão Adicionado de Play/Pausa no HUD -->
+                <button class="hud-btn" onclick="togglePlayPauseRecording()" id="playPauseBtn" style="border-color: #ff9900;">
+                    <i class="fa-solid fa-play" id="playPauseIcon"></i> <span id="playPauseText">Iniciar</span>
+                </button>
+
                 <button class="hud-btn" onclick="toggleBlackout(true)">
                     <i class="fa-solid fa-eye-slash"></i> Ocultar
                 </button>
@@ -703,8 +772,18 @@
                 <i class="fa-solid fa-xmark"></i> Fechar
             </button>
         </div>
-        <div class="video-grid" id="videoGrid">
-            </div>
+        
+        <div class="video-grid" id="videoGrid"></div>
+        
+        <!-- Botões Adicionados de Ações em Massa no Final do Armazenamento -->
+        <div class="gallery-bulk-actions">
+            <button class="bulk-btn bulk-btn-download" onclick="downloadAllVideos()">
+                <i class="fa-solid fa-cloud-arrow-down"></i> Download
+            </button>
+            <button class="bulk-btn bulk-btn-delete" onclick="deleteAllVideos()">
+                <i class="fa-solid fa-trash-fire"></i> Excluir
+            </button>
+        </div>
     </div>
 
     <div class="video-player-overlay" id="playerOverlay">
@@ -725,8 +804,12 @@
         let secondsElapsed = 0;
         const chunkDuration = 120000; // 2 minutos (120000 ms)
         const maxVideoLimit = 32;
+        
+        // Controle do estado do play/pause manual requisitado
+        let isRecordingActive = false;
+        let currentModeCaptured = '';
 
-        // Elementos do DOM.
+        // Elementos do DOM
         const cameraModal = document.getElementById('cameraModal');
         const videoContainer = document.getElementById('videoContainer');
         const viewWrapper = document.getElementById('viewWrapper');
@@ -799,6 +882,11 @@
             video1.className = '';
             video2.className = '';
             viewWrapper.classList.remove('split-mode');
+            
+            // Força o estado a iniciar pausado para posicionamento útil
+            isRecordingActive = false;
+            currentModeCaptured = mode;
+            updatePlayPauseButtonUI();
 
             try {
                 if (mode === 'front') {
@@ -830,14 +918,13 @@
                         streams.push(streamB);
                         startMediaRecorder(streamB, "Traseira");
                         backSuccess = true;
-                    } catch (e) { console.error("Erro traseiro:", e); }
+                    } catch (e) { console.error("Erro trasero:", e); }
 
                     if(!frontSuccess && !backSuccess) throw new Error("Nenhum sensor de imagem disponível.");
                     if(!frontSuccess || !backSuccess) showToast("Aviso: Hardware limitado para gravação dupla.");
                 }
 
-                startTimers();
-                showToast("Gravação em andamento...");
+                showToast("Câmera aberta. Posicione o aparelho e clique em Iniciar.");
 
             } catch (err) {
                 alert("Falha de acesso às câmeras: " + err.message);
@@ -878,20 +965,70 @@
                     await saveVideoToInternalDatabase(blob, label);
                 }
                 
-                if (stream.active) {
+                if (stream.active && isRecordingActive) {
                     recorder.start();
                 }
             };
 
-            recorder.start();
-            recorders.push(recorder);
+            // Mantido o objeto armazenado mas ele só dará `.start()` efetivo se isRecordingActive for verdadeiro
+            recorders.push({ recorderInstance: recorder, streamInstance: stream, labelInstance: label });
+        }
 
-            if (!loopInterval) {
-                loopInterval = setInterval(() => {
-                    recorders.forEach(rec => {
-                        if(rec.state !== "inactive") rec.stop();
-                    });
-                }, chunkDuration);
+        // Controle manual de Play / Pause da gravação ativa requisitado
+        function togglePlayPauseRecording() {
+            if (recorders.length === 0) return;
+
+            if (!isRecordingActive) {
+                // Ativar Gravação (Play)
+                isRecordingActive = true;
+                recorders.forEach(item => {
+                    if (item.recorderInstance.state === "inactive") {
+                        item.recorderInstance.start();
+                    }
+                });
+                startTimers();
+                
+                if (!loopInterval) {
+                    loopInterval = setInterval(() => {
+                        if (isRecordingActive) {
+                            recorders.forEach(item => {
+                                if(item.recorderInstance.state !== "inactive") item.recorderInstance.stop();
+                            });
+                        }
+                    }, chunkDuration);
+                }
+                showToast("Gravação iniciada!");
+            } else {
+                // Pausar Gravação (Pause)
+                isRecordingActive = false;
+                clearInterval(loopInterval);
+                clearInterval(elapsedTimer);
+                loopInterval = null;
+                elapsedTimer = null;
+
+                recorders.forEach(item => {
+                    if(item.recorderInstance.state !== "inactive") {
+                        item.recorderInstance.stop();
+                    }
+                });
+                showToast("Gravação pausada. Fragmento salvo.");
+            }
+            updatePlayPauseButtonUI();
+        }
+
+        function updatePlayPauseButtonUI() {
+            const icon = document.getElementById('playPauseIcon');
+            const text = document.getElementById('playPauseText');
+            const dot = document.getElementById('recDotElement');
+
+            if (isRecordingActive) {
+                icon.className = "fa-solid fa-pause";
+                text.innerText = "Pausar";
+                dot.classList.remove('paused');
+            } else {
+                icon.className = "fa-solid fa-play";
+                text.innerText = "Gravar";
+                dot.classList.add('paused');
             }
         }
 
@@ -943,8 +1080,10 @@
 
         // CRONÔMETRO ATIVO
         function startTimers() {
-            secondsElapsed = 0;
-            timerDisplay.innerText = "00:00";
+            // Se já estivesse contando de uma pausa anterior, mantém. Caso contrário inicia do zero.
+            if (secondsElapsed === 0) {
+                timerDisplay.innerText = "00:00";
+            }
             elapsedTimer = setInterval(() => {
                 secondsElapsed++;
                 let mins = String(Math.floor(secondsElapsed / 60)).padStart(2, '0');
@@ -959,10 +1098,11 @@
             clearInterval(elapsedTimer);
             loopInterval = null;
             elapsedTimer = null;
+            secondsElapsed = 0;
 
-            // Para os gravadores - o gatilho "onstop" vai rodar e salvar automaticamente o bloco incompleto atual no IndexedDB
-            recorders.forEach(rec => {
-                if(rec.state !== "inactive") rec.stop();
+            // Para os gravadores - o gatilho "onstop" vai rodar e salvar automaticamente o bloco incompleto atual no IndexedDB se ativo
+            recorders.forEach(item => {
+                if(item.recorderInstance.state !== "inactive") item.recorderInstance.stop();
             });
             recorders = [];
 
@@ -975,6 +1115,7 @@
             video1.srcObject = null;
             video2.srcObject = null;
 
+            isRecordingActive = false;
             toggleBlackout(false);
             videoContainer.style.display = 'none';
             document.getElementById('dashboardScreen').style.opacity = '1';
@@ -1084,6 +1225,33 @@
             };
         }
 
+        // NOVO: Função para baixar todos os vídeos de uma só vez sequencialmente
+        function downloadAllVideos() {
+            if (!db) return;
+            const tx = db.transaction(["videos"], "readonly");
+            const store = tx.objectStore("videos");
+            store.getAll().onsuccess = function(e) {
+                const records = e.target.result;
+                if (records.length === 0) {
+                    showToast("Não há vídeos para baixar.");
+                    return;
+                }
+                showToast(`Iniciando download em massa de ${records.length} vídeos...`);
+                records.forEach((record, index) => {
+                    setTimeout(() => {
+                        const url = URL.createObjectURL(record.videoBlob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `AutoCam_Bulk_ID${record.id}.webm`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                    }, index * 400); // Pequeno atraso para o navegador gerenciar múltiplos downloads sem travar
+                });
+            };
+        }
+
         function deleteSingleVideo(id) {
             if(confirm("Deseja apagar permanentemente este bloco de vídeo do sistema?")) {
                 const tx = db.transaction(["videos"], "readwrite");
@@ -1091,6 +1259,22 @@
                 store.delete(id);
                 tx.oncomplete = function() {
                     showToast("Vídeo excluído.");
+                    updateStorageUI();
+                    openGallery(); // recarrega a grade
+                };
+            }
+        }
+
+        // NOVO: Função para excluir em massa limpando o armazenamento interno
+        function deleteAllVideos() {
+            if (!db) return;
+            if (confirm("Aviso Crítico: Tem certeza de que deseja deletar TODOS os vídeos armazenados na pasta do sistema de uma só vez?")) {
+                const tx = db.transaction(["videos"], "readwrite");
+                const store = tx.objectStore("videos");
+                const clearRequest = store.clear();
+                
+                clearRequest.onsuccess = function() {
+                    showToast("Todos os vídeos foram removidos do armazenamento.");
                     updateStorageUI();
                     openGallery(); // recarrega a grade
                 };
