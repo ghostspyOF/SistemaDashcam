@@ -263,14 +263,10 @@
             flex: 1;
             width: 100%;
             display: flex;
-            flex-direction: column;
+            flex-direction: column; /* Força modo em pé */
             gap: 4px;
             background-color: #000;
             position: relative;
-        }
-
-        .viewfinders-wrapper.split-mode video {
-            height: 50%;
         }
 
         video {
@@ -294,7 +290,7 @@
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            padding: 25px;
+            padding: 20px;
             pointer-events: none;
             z-index: 60;
             transition: opacity 0.3s ease;
@@ -328,7 +324,6 @@
             box-shadow: 0 0 8px #ff0000;
         }
 
-        /* Classe para estado de pausa no indicador */
         .rec-dot.paused {
             background-color: #ffcc00 !important;
             box-shadow: 0 0 8px #ffcc00 !important;
@@ -354,9 +349,9 @@
 
         .hud-bottom {
             width: 100%;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
             pointer-events: auto;
         }
 
@@ -366,13 +361,14 @@
             backdrop-filter: var(--vidro-blur);
             -webkit-backdrop-filter: var(--vidro-blur);
             color: white;
-            padding: 14px 24px;
+            padding: 14px 10px;
             border-radius: 16px;
             cursor: pointer;
             display: flex;
+            justify-content: center;
             align-items: center;
-            gap: 10px;
-            font-size: 0.95rem;
+            gap: 8px;
+            font-size: 0.9rem;
             transition: all 0.2s ease;
         }
 
@@ -385,7 +381,7 @@
             transform: scale(0.95);
         }
 
-        /* --- TELA PRETA ABSOLUTA (OCULTAR / BLACKOUT) --- */
+        /* --- TELA PRETA ABSOLUTA --- */
         .blackout-overlay {
             position: absolute;
             top: 0;
@@ -421,7 +417,7 @@
             box-shadow: 0 0 10px var(--laranja-vivo);
         }
 
-        /* --- PAINEL DE VÍDEOS INTERNO (GALERIA SISTEMA) --- */
+        /* --- GALERIA SISTEMA --- */
         .gallery-panel {
             position: absolute;
             top: 0;
@@ -446,7 +442,7 @@
         }
 
         .gallery-title {
-            font-size: 1.3rem;
+            font-size: 1.1rem;
             font-weight: 500;
             display: flex;
             align-items: center;
@@ -472,7 +468,7 @@
             grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
             gap: 15px;
             flex: 1;
-            margin-bottom: 100px; /* Garante espaço para o painel inferior de ações */
+            margin-bottom: 100px;
         }
 
         .video-card {
@@ -537,7 +533,6 @@
             font-size: 0.95rem;
         }
 
-        /* Painel inferior com ações em massa na pasta de armazenamento */
         .gallery-bulk-actions {
             position: sticky;
             bottom: -20px;
@@ -591,7 +586,6 @@
             background: rgba(255, 0, 0, 0.35);
         }
 
-        /* --- PLAYER DE VÍDEO POPUP INTERNO --- */
         .video-player-overlay {
             position: absolute;
             top: 0;
@@ -623,7 +617,6 @@
             justify-content: center;
         }
 
-        /* Notificação Toast Flutuante */
         .toast-notify {
             position: absolute;
             top: 25px;
@@ -652,26 +645,6 @@
         @keyframes pulse {
             from { opacity: 1; }
             to { opacity: 0.3; }
-        }
-
-        /* Responsividade Horizontal (Modo Paisagem para Carro) */
-        @media (orientation: landscape) {
-            .viewfinders-wrapper.split-mode {
-                flex-direction: row;
-            }
-            .viewfinders-wrapper.split-mode video {
-                width: 50%;
-                height: 100%;
-            }
-            .modal-buttons-grid {
-                flex-direction: row;
-            }
-            .modal-content {
-                max-width: 580px;
-            }
-            .video-grid {
-                grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-            }
         }
     </style>
 </head>
@@ -710,11 +683,6 @@
                     <i class="fa-solid fa-road"></i>
                     <span>Câmera Traseira</span>
                 </div>
-                <!-- Terceiro Botão Solicitado -->
-                <div class="modal-btn" onclick="startCapture('alternating')" style="border-color: var(--laranja-vivo);">
-                    <i class="fa-solid fa-shuffle"></i>
-                    <span>Alternar 30s (4 Minutos)</span>
-                </div>
             </div>
 
             <div class="modal-close-area" onclick="closeCameraModal()">
@@ -745,9 +713,12 @@
                     <i class="fa-solid fa-arrow-left"></i> Voltar
                 </button>
                 
-                <!-- Botão Adicionado de Play/Pausa no HUD -->
                 <button class="hud-btn" onclick="togglePlayPauseRecording()" id="playPauseBtn" style="border-color: #ff9900;">
                     <i class="fa-solid fa-play" id="playPauseIcon"></i> <span id="playPauseText">Iniciar</span>
+                </button>
+
+                <button class="hud-btn" onclick="switchCameraOnTheFly()">
+                    <i class="fa-solid fa-camera-rotate"></i> Girar
                 </button>
 
                 <button class="hud-btn" onclick="toggleBlackout(true)">
@@ -775,7 +746,6 @@
         
         <div class="video-grid" id="videoGrid"></div>
         
-        <!-- Botões Adicionados de Ações em Massa no Final do Armazenamento -->
         <div class="gallery-bulk-actions">
             <button class="bulk-btn bulk-btn-download" onclick="downloadAllVideos()">
                 <i class="fa-solid fa-cloud-arrow-down"></i> Download
@@ -795,18 +765,15 @@
         </div>
     </div>
 
-    <!-- Canvas Escondido para Processar a Estampa de Texto em Tempo Real -->
     <canvas id="hiddenCanvas" style="display:none;"></canvas>
 
     <script>
-        // CONFIGURAÇÕES E ESTADO GLOBAL.
         let currentStream = null;
         let audioStream = null;
         let recorders = [];
         let loopInterval = null;
         let elapsedTimer = null;
         let isCanvasRunning = false;
-        let alternatingInterval = null; 
         let secondsElapsed = 0;
         let chunkDuration = 120000; 
         const maxVideoLimit = 32;
@@ -816,7 +783,6 @@
         let currentActiveVideoElement = null; 
         let currentFacingMode = "user"; 
 
-        // Elementos do DOM
         const cameraModal = document.getElementById('cameraModal');
         const videoContainer = document.getElementById('videoContainer');
         const viewWrapper = document.getElementById('viewWrapper');
@@ -833,7 +799,6 @@
         const hiddenCanvas = document.getElementById('hiddenCanvas');
         const ctx = hiddenCanvas.getContext('2d');
 
-        // INICIALIZAÇÃO DO BANCO DE DADOS LOCAL (IndexedDB)
         let db = null;
         const dbRequest = indexedDB.open("AutoCamStorage", 1);
 
@@ -885,47 +850,37 @@
             video2.style.display = 'none';
             video1.className = '';
             video2.className = '';
-            viewWrapper.classList.remove('split-mode');
             
             isRecordingActive = false;
             currentModeCaptured = mode;
             updatePlayPauseButtonUI();
 
-            // Configuração estável de resolução padrão para evitar estouro de memória no Canvas
-            hiddenCanvas.width = 1280;
-            hiddenCanvas.height = 720;
+            hiddenCanvas.width = 720;  /* Ajustado Proporção Em Pé */
+            hiddenCanvas.height = 1280;
 
             try {
-                // Abre o microfone separadamente em um fluxo fixo
                 audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
                 if (mode === 'front') {
+                    currentFacingMode = "user";
                     video1.classList.add('front-camera-view');
                     currentActiveVideoElement = video1;
                     await setupCameraDevice({ video: { facingMode: "user", width: 1280, height: 720 } }, video1);
                 } else if (mode === 'back') {
+                    currentFacingMode = "environment";
                     currentActiveVideoElement = video1;
                     await setupCameraDevice({ video: { facingMode: "environment", width: 1280, height: 720 } }, video1);
-                } else if (mode === 'alternating') {
-                    chunkDuration = 240000; // 4 minutos totais
-                    currentFacingMode = "user"; 
-                    video1.classList.add('front-camera-view');
-                    currentActiveVideoElement = video1;
-                    
-                    await setupCameraDevice({ video: { facingMode: "user", width: 1280, height: 720 } }, video1);
                 }
 
-                // Inicia o loop seguro de renderização do carimbo
                 isCanvasRunning = true;
                 startCanvasStamping();
 
-                // Monta o fluxo final composto (Canvas estável + Áudio contínuo)
                 const canvasStream = hiddenCanvas.captureStream(25);
                 if (audioStream.getAudioTracks().length > 0) {
                     canvasStream.addTrack(audioStream.getAudioTracks()[0]);
                 }
                 
-                startMediaRecorder(canvasStream, mode === 'alternating' ? "Alternante" : "Camera");
+                startMediaRecorder(canvasStream, "Camera");
                 showToast("Câmera aberta. Clique em Iniciar.");
 
             } catch (err) {
@@ -948,41 +903,45 @@
             });
         }
 
-        // Alterna a câmera fisicamente fechando o hardware anterior antes de chamar o próximo
         async function switchCameraOnTheFly() {
             try {
                 if (currentFacingMode === "user") {
                     currentFacingMode = "environment";
                     video1.classList.remove('front-camera-view');
                     await setupCameraDevice({ video: { facingMode: "environment", width: 1280, height: 720 } }, video1);
+                    showToast("Mudou para câmera traseira");
                 } else {
                     currentFacingMode = "user";
                     video1.classList.add('front-camera-view');
                     await setupCameraDevice({ video: { facingMode: "user", width: 1280, height: 720 } }, video1);
+                    showToast("Mudou para câmera frontal");
                 }
             } catch (e) {
-                console.error("Erro na transição suave de câmera: ", e);
+                console.error("Erro ao girar câmera: ", e);
             }
         }
 
-        // Desenha usando requestAnimationFrame (sincronizado nativamente, sem travar a CPU)
         function startCanvasStamping() {
             if (!isCanvasRunning) return;
 
             if (currentActiveVideoElement && !currentActiveVideoElement.paused && !currentActiveVideoElement.ended) {
                 ctx.clearRect(0, 0, hiddenCanvas.width, hiddenCanvas.height);
                 
+                ctx.save();
+                // Corta e centraliza o feed horizontal para caber na proporção vertical em pé (Estilo Story/TikTok)
+                let scale = Math.max(hiddenCanvas.width / currentActiveVideoElement.videoWidth, hiddenCanvas.height / currentActiveVideoElement.videoHeight);
+                let x = (hiddenCanvas.width / 2) - (currentActiveVideoElement.videoWidth / 2) * scale;
+                let y = (hiddenCanvas.height / 2) - (currentActiveVideoElement.videoHeight / 2) * scale;
+                
                 if (currentActiveVideoElement.classList.contains('front-camera-view')) {
-                    ctx.save();
                     ctx.translate(hiddenCanvas.width, 0);
                     ctx.scale(-1, 1);
-                    ctx.drawImage(currentActiveVideoElement, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
-                    ctx.restore();
+                    ctx.drawImage(currentActiveVideoElement, -x, y, currentActiveVideoElement.videoWidth * scale, currentActiveVideoElement.videoHeight * scale);
                 } else {
-                    ctx.drawImage(currentActiveVideoElement, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+                    ctx.drawImage(currentActiveVideoElement, x, y, currentActiveVideoElement.videoWidth * scale, currentActiveVideoElement.videoHeight * scale);
                 }
+                ctx.restore();
                 
-                // Aplica estilo visual à fonte
                 ctx.fillStyle = "#ff6600"; 
                 ctx.shadowColor = "black";
                 ctx.shadowBlur = 6;
@@ -1002,13 +961,12 @@
                 
                 const textoFraseUnica = `Mayckon: ${dia}/${mes}/${ano} - ${hora}:${min}:${seg} (${minsElapsed}:${secsElapsed})`;
                 
-                ctx.font = "bold 26px monospace";
+                ctx.font = "bold 24px monospace";
                 ctx.textAlign = "center";
                 
-                ctx.strokeText(textoFraseUnica, hiddenCanvas.width / 2, hiddenCanvas.height * 0.93);
-                ctx.fillText(textoFraseUnica, hiddenCanvas.width / 2, hiddenCanvas.height * 0.93);
+                ctx.strokeText(textoFraseUnica, hiddenCanvas.width / 2, hiddenCanvas.height * 0.95);
+                ctx.fillText(textoFraseUnica, hiddenCanvas.width / 2, hiddenCanvas.height * 0.95);
             } else {
-                // Tela de transição se o hardware estiver alternando
                 ctx.fillStyle = "#000000";
                 ctx.fillRect(0, 0, hiddenCanvas.width, hiddenCanvas.height);
             }
@@ -1062,24 +1020,13 @@
                         }
                     }, chunkDuration);
                 }
-
-                if (currentModeCaptured === 'alternating' && !alternatingInterval) {
-                    alternatingInterval = setInterval(async () => {
-                        if (isRecordingActive) {
-                            await switchCameraOnTheFly();
-                        }
-                    }, 30000); 
-                }
-
                 showToast("Gravação iniciada!");
             } else {
                 isRecordingActive = false;
                 clearInterval(loopInterval);
                 clearInterval(elapsedTimer);
-                clearInterval(alternatingInterval);
                 loopInterval = null;
                 elapsedTimer = null;
-                alternatingInterval = null;
 
                 recorders.forEach(item => {
                     if(item.recorderInstance.state !== "inactive") item.recorderInstance.stop();
@@ -1138,11 +1085,6 @@
                 let mins = String(Math.floor(secondsElapsed / 60)).padStart(2, '0');
                 let secs = String(secondsElapsed % 60).padStart(2, '0');
                 timerDisplay.innerText = `${mins}:${secs}`;
-
-                if (currentModeCaptured === 'alternating' && secondsElapsed >= 240) {
-                    showToast("Limite de 4 minutos atingido.");
-                    stopCaptureSystem();
-                }
             }, 1000);
         }
 
@@ -1152,10 +1094,8 @@
             
             clearInterval(loopInterval);
             clearInterval(elapsedTimer);
-            clearInterval(alternatingInterval);
             loopInterval = null;
             elapsedTimer = null;
-            alternatingInterval = null;
             secondsElapsed = 0;
 
             recorders.forEach(item => {
